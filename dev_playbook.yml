@@ -1,0 +1,170 @@
+---
+- name: Install Development Environment
+  hosts: localhost
+  become: false
+  vars:
+    install_homebrew: true
+    upgrade_homebrew_packages: true
+# MacOS only
+#    brew_cask_packages:
+#      - docker
+#      - firefox
+#      - google-chrome
+#      - macvim
+#      - sublime-text
+    brew_packages:
+      - docker
+      - docker-compose
+      - docker-machine
+      - git
+      - jq
+      - openssl
+      - pyenv
+      - python
+      - ssh-copy-id
+      - wget
+      - zsh
+      - zsh-syntax-highlighting
+
+  tasks:
+
+#########################
+## Homebrew Setup
+#########################
+
+    - name: Check if Homebrew Is Installed
+      shell:
+        cmd: which brew
+      register: homebrew_check
+      check_mode: false
+      changed_when: false
+      failed_when: homebrew_check.rc != 0
+      ignore_errors: true
+
+    - name: Abort if homebrew is not installed and we won't auto install it
+      fail:
+        msg: Homebrew is missing. Run /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+      when:
+        - homebrew_check.failed
+        - not install_homebrew
+
+    - name: Auto Install homebrew
+      shell: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+      when:
+        - homebrew_check.failed
+        - install_homebrew
+
+    - name: Check Homebrew Environment
+      shell:
+        cmd: grep .linuxbrew ~/.bashrc
+      register: homebrew_env
+      check_mode: false
+      changed_when: false
+      failed_when: homebrew_env.rc != 0
+      ignore_errors: true
+
+    - name: Set Homebrew Environment
+      shell:
+        cmd: echo >> ~/.bashrc && echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' >> ~/.bashrc
+      check_mode: false
+      changed_when: false
+      when: homebrew_env.failed
+
+    - name: 'Restart shell or run the following command: source ~/.bashrc before continuing.'
+      meta: end_play
+      when: homebrew_env.failed
+
+############################
+### Install Main Packages
+############################
+
+    - name: Updating Homebrew
+      homebrew:
+        update_homebrew: true
+      when: not homebrew_check.failed
+
+    - name: Upgrading Homebrew Packages
+      homebrew:
+        upgrade_all: "{{ upgrade_homebrew_packages }}"
+      register: result
+      until: result is successful
+      when: not homebrew_check.failed
+
+# MacOS only
+#    - name: Installing Homebrew Cask Packages
+#      homebrew_cask:
+#        name: "{{ brew_cask_packages }}"
+#        state: present
+#      register: result
+#      until: result is successful
+#      when: not homebrew_check.failed
+
+    - name: Installing Homebrew Packages
+      homebrew:
+        name: "{{ brew_packages }}"
+        state: present
+      register: result
+      until: result is successful
+      when: not homebrew_check.failed
+
+###############################
+### Check pyenv setup
+###############################
+
+    - name: Check PYENV Environment
+      shell:
+        cmd: grep PYENV_ROOT ~/.bashrc
+      register: pyenv_env
+      check_mode: false
+      changed_when: false
+      failed_when: pyenv_env.rc != 0
+      ignore_errors: true
+
+    - name: Set PYENV Environment
+      shell:
+        cmd: pyenv init 2>&1 | grep -vE "^#" >> ~/.bashrc && /bin/bash -c "$(pyenv init 2>&1)"
+      register: pyenv_env_set
+      check_mode: false
+      changed_when: false
+      failed_when: pyenv_env_set.rc != 0
+      when: pyenv_env.failed
+
+    - name: 'Restart shell or run the following command: source ~/.bashrc before continuing.'
+      meta: end_play
+      when: pyenv_env.failed
+
+############################################
+### Make sure Python 2.7.18 is installed
+############################################
+
+    - name: Check Python2 Version
+      shell:
+        cmd: python2 --version 2>&1 | grep -v "not found" | cut -d' ' -f2
+      register: python2_version
+      check_mode: false
+      changed_when: false
+
+    - name: Install Python 2.7.18
+      shell:
+        cmd: pyenv install -v 2.7.18 && pyenv global 2.7.18
+      check_mode: false
+      changed_when: false
+      when: python2_version.stdout != "2.7.18"
+
+############################################
+### Make sure Pip2 is installed
+############################################
+
+    - name: Check PIP2 Version
+      shell:
+        cmd: pip2 --version 2>&1 | grep -v "not found" | cut -d' ' -f2
+      register: pip2_version
+      check_mode: false
+      changed_when: false
+
+    - name: Install PIP2 20.3.4
+      shell:
+        cmd: curl https://bootstrap.pypa.io/pip/2.7/get-pip.py --output get-pip.py && python2 get-pip.py
+      check_mode: false
+      changed_when: false
+      when: pip2_version.stdout != "20.3.4"
